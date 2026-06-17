@@ -3,22 +3,55 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { Phone, PhoneOff, Share2, Copy, Check, Users, Shield, Radio, Volume2, Mic } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Phone, PhoneOff, Copy, Check, Users, Shield, Radio } from 'lucide-react';
+import { useCall } from './context/CallContext';
 
 export default function App() {
-  const [roomId, setRoomId] = useState('');
-  const [joined, setJoined] = useState(false);
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [callStatus, setCallStatus] = useState<'idle' | 'calling' | 'incoming' | 'connected'>('idle');
-  const [incomingOffer, setIncomingOffer] = useState<RTCSessionDescriptionInit | null>(null);
+  const { 
+    callStatus, setCallStatus, 
+    joined, setJoined, 
+    roomId, setRoomId, 
+    socket,
+    incomingOffer, setIncomingOffer,
+    fcmToken, setFcmToken,
+    localStream, peerConnection,
+    endCall 
+  } = useCall();
   const [copied, setCopied] = useState(false);
   
-  const localStream = useRef<MediaStream | null>(null);
-  const peerConnection = useRef<RTCPeerConnection | null>(null);
+  // Register FCM
+  useEffect(() => {
+    const registerFcm = async () => {
+      const { requestNotificationPermission } = await import('./lib/firebaseClient');
+      const token = await requestNotificationPermission();
+      if (token) {
+        setFcmToken(token);
+        await fetch('/api/fcm-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: socket?.id, token })
+        });
+      }
+    };
+    if (socket) registerFcm();
+  }, [socket]);
+  
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const ringtoneRef = useRef<HTMLAudioElement>(null);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+  
+  // Manage ringtone playback
+  useEffect(() => {
+    if (callStatus === 'incoming') {
+      ringtoneRef.current?.play().catch(console.warn);
+    } else {
+      if (ringtoneRef.current) {
+        ringtoneRef.current.pause();
+        ringtoneRef.current.currentTime = 0;
+      }
+    }
+  }, [callStatus]);
   
   const roomIdRef = useRef(roomId);
   useEffect(() => {
@@ -34,14 +67,7 @@ export default function App() {
     }
   }, []);
 
-  // Initialize socket connection
-  useEffect(() => {
-    const s = io();
-    setSocket(s);
-    return () => { s.close(); };
-  }, []);
-
-  // Auto-join room if room exists in URL
+  // Auto-join room
   useEffect(() => {
     if (socket && roomId && !joined) {
       const params = new URLSearchParams(window.location.search);
@@ -49,7 +75,6 @@ export default function App() {
       if (roomFromUrl && roomFromUrl === roomId) {
         socket.emit('join', roomId);
         setJoined(true);
-        console.log("Auto-joined room from URL:", roomId);
       }
     }
   }, [socket, roomId, joined]);
@@ -65,13 +90,11 @@ export default function App() {
     
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        console.log("Sending ICE candidate to peer");
         socket?.emit('signal', { room: roomIdRef.current, signal: { candidate: e.candidate } });
       }
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log("ICE Connection State changed to:", pc.iceConnectionState);
       if (pc.iceConnectionState === 'connected') {
         setCallStatus('connected');
       } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
@@ -80,16 +103,10 @@ export default function App() {
     };
     
     pc.ontrack = (e) => {
-      console.log("Remote WebRTC audio track received. Stream ID:", e.streams[0].id);
       if (remoteAudioRef.current) {
-        // Feed the remote audio track straight to the user speaker
         remoteAudioRef.current.srcObject = e.streams[0];
         remoteAudioRef.current.muted = false;
-        
-        remoteAudioRef.current.play().catch(err => {
-          console.warn("Playback prevented or failed:", err);
-          // Auto-play might be blocked by browser user gesture policies
-        });
+        remoteAudioRef.current.play().catch(console.warn);
       }
     };
     
@@ -99,8 +116,14 @@ export default function App() {
 
   const startCall = async () => {
     try {
-      // 1. Get user mic access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 1. Get user mic access with high-quality constraints
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
       localStream.current = stream;
       
       // 2. Setup connection
@@ -120,40 +143,21 @@ export default function App() {
     }
   };
 
-  const endCall = () => {
-    // Notify the other peer
-    socket?.emit('signal', { room: roomIdRef.current, signal: { type: 'hangup' } });
-    
-    // Clean up local resources
-    cleanupCall();
-  };
-
-  const cleanupCall = () => {
-    if (peerConnection.current) {
-      peerConnection.current.close();
-      peerConnection.current = null;
-    }
-    if (localStream.current) {
-      localStream.current.getTracks().forEach(track => track.stop());
-      localStream.current = null;
-    }
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = null;
-    }
-    setCallStatus('idle');
-    setIncomingOffer(null);
-    pendingCandidates.current = [];
-  };
-
   const handleRemoteHangup = () => {
-    cleanupCall();
+    endCall();
   };
 
   const answerCall = async () => {
     if (!incomingOffer || !peerConnection.current) return;
     try {
-      // 1. Get local mic stream for communication
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 1. Get local mic stream for communication with high-quality constraints
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
       localStream.current = stream;
       
       const pc = peerConnection.current;
@@ -424,6 +428,7 @@ export default function App() {
           </div>
         )}
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        <audio ref={ringtoneRef} src="https://assets.mixkit.co/sfx/preview/mixkit-classic-alarm-995.mp3" loop className="hidden" />
       </div>
     </div>
   );

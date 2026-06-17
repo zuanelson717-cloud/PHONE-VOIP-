@@ -1,0 +1,20 @@
+{
+  "entities": {
+    "fcmToken": {
+      "title": "FCM Token",
+      "description": "Stores user FCM device tokens",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The user ID" },
+        "token": { "type": "string", "description": "The FCM registration token" }
+      },
+      "required": ["userId", "token"]
+    }
+  },
+  "firestore": {
+    "/fcmTokens/{userId}": {
+      "schema": "fcmToken",
+      "description": "User FCM tokens"
+    }
+  }
+}
