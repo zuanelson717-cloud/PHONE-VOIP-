@@ -9,12 +9,27 @@
         "token": { "type": "string", "description": "The FCM registration token" }
       },
       "required": ["userId", "token"]
+    },
+    "chatMessage": {
+      "title": "Chat Message",
+      "description": "Stores chat messages",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "The message text" },
+        "sender": { "type": "string", "description": "The sender's name or ID" },
+        "createdAt": { "type": "number", "description": "When the message was created" }
+      },
+      "required": ["text", "sender", "createdAt"]
     }
   },
   "firestore": {
     "/fcmTokens/{userId}": {
       "schema": "fcmToken",
       "description": "User FCM tokens"
+    },
+    "/chatMessages/{messageId}": {
+      "schema": "chatMessage",
+      "description": "Chat messages"
     }
   }
 }

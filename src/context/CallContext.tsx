@@ -31,9 +31,27 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const peerConnection = useRef<RTCPeerConnection | null>(null);
 
   useEffect(() => {
-    const s = io();
+    const s = io({
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+    });
     setSocket(s);
-    return () => { s.close(); };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && s.disconnected) {
+        console.log("Tab is visible again, reconnecting socket...");
+        s.connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => { 
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      s.close(); 
+    };
   }, []);
 
   const endCall = () => {

@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Phone, PhoneOff, Copy, Check, Users, Shield, Radio } from 'lucide-react';
 import { useCall } from './context/CallContext';
 import ringtoneFile from './context/soynoviembre-classic-phone-ringtone-439034.mp3';
+import { Chat } from './components/Chat';
+import { BottomMenu } from './components/BottomMenu';
 
 export default function App() {
   const { 
@@ -256,7 +258,9 @@ export default function App() {
   }, [socket]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col items-center justify-center p-2 sm:p-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col items-center justify-center p-2 sm:p-6 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-cyan-900/10 via-slate-950 to-slate-950">
+      <Chat />
+      <BottomMenu />
       {/* Phone Frame */}
       <div className="w-full max-w-[22rem] bg-slate-900 rounded-[3rem] shadow-2xl border border-slate-700/50 p-6 flex flex-col overflow-hidden h-[85vh] sm:h-auto sm:aspect-[9/19] sm:rounded-3xl border-slate-800">
         
