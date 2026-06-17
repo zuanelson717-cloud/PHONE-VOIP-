@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Phone, PhoneOff, Copy, Check, Users, Shield, Radio } from 'lucide-react';
 import { useCall } from './context/CallContext';
+import ringtoneFile from './context/soynoviembre-classic-phone-ringtone-439034.mp3';
 
 export default function App() {
   const { 
@@ -43,8 +44,9 @@ export default function App() {
   
   // Manage ringtone playback
   useEffect(() => {
+    console.log("Call status changed to:", callStatus);
     if (callStatus === 'incoming') {
-      ringtoneRef.current?.play().catch(console.warn);
+      ringtoneRef.current?.play().catch((e) => console.error("Playback error:", e));
     } else {
       if (ringtoneRef.current) {
         ringtoneRef.current.pause();
@@ -428,7 +430,7 @@ export default function App() {
           </div>
         )}
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-        <audio ref={ringtoneRef} src="https://assets.mixkit.co/sfx/preview/mixkit-classic-alarm-995.mp3" loop className="hidden" />
+        <audio ref={ringtoneRef} src={ringtoneFile} loop className="hidden" />
       </div>
     </div>
   );
