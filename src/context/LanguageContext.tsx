@@ -10,19 +10,22 @@ export const translations = {
         contact: 'CONTACTO: 935142914',
         gps: 'GPS: Soyo-Zaire- Angola',
         chat: 'Chat',
-        set_name: 'Set Your Name',
-        enter_name: 'Enter name...',
-        save: 'Save',
-        recipient: 'Recipient (optional)...',
-        type_message: 'Type message...',
-        send: 'Send',
-        select: 'Select',
-        delete_selected: 'Delete Selected',
-        cancel: 'Cancel',
-        close: 'Close',
-        name: 'Name',
+        set_name: 'Definir Seu Nome',
+        enter_name: 'Digite seu nome...',
+        save: 'Salvar',
+        recipient: 'Destinatário (opcional)...',
+        type_message: 'Digite a mensagem...',
+        send: 'Enviar',
+        select: 'Selecionar',
+        delete_selected: 'Excluir Selecionados',
+        cancel: 'Cancelar',
+        close: 'Fechar',
+        name: 'Nome',
         id: 'ID',
-        share_id: 'Share ID'
+        share_id: 'Compartilhar ID',
+        change_name: 'Mudar Nome',
+        user_exists: 'Este usuário já existe',
+        anonymous: 'Anónimo'
     },
     fr: {
         menu: 'Menu',
@@ -43,7 +46,10 @@ export const translations = {
         close: 'Fermer',
         name: 'Nom',
         id: 'ID',
-        share_id: 'Partager ID'
+        share_id: 'Partager ID',
+        change_name: 'Changer de nom',
+        user_exists: 'Cet utilisateur existe déjà',
+        anonymous: 'Anonyme'
     },
     en: {
         menu: 'Menu',
@@ -64,7 +70,10 @@ export const translations = {
         close: 'Close',
         name: 'Name',
         id: 'ID',
-        share_id: 'Share ID'
+        share_id: 'Share ID',
+        change_name: 'Change Name',
+        user_exists: 'This user already exists',
+        anonymous: 'Anonymous'
     }
 };
 
@@ -77,6 +86,8 @@ export const LanguageContext = createContext<{
     setLanguage: () => {},
     t: (key) => translations['pt'][key]
 });
+
+export const useLanguage = () => React.useContext(LanguageContext);
 
 export function LanguageContextProvider({ children }: { children: React.ReactNode }) {
     const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'pt');

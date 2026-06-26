@@ -18,7 +18,7 @@ export const requestNotificationPermission = async () => {
             return token;
         }
     } catch (err) {
-        console.error('An error occurred while retrieving token. ', err);
+        console.error('An error occurred while retrieving token. ', err instanceof Error ? err.message : String(err));
     }
     return null;
 };

@@ -3,43 +3,48 @@ import { db } from '../lib/firebaseClient';
 import { collection, addDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { useCall } from '../context/CallContext';
 import { LanguageContext } from '../context/LanguageContext';
+import { getPersistentItem, setPersistentItem, safeStringify } from '../lib/storage';
 
 interface Message {
   id: string;
   text: string;
   sender: string;
-  recipient?: string;
   createdAt: number;
+  room?: string;
 }
+
 
 export const Chat = () => {
     const { t } = useContext(LanguageContext);
-    const { roomId } = useCall();
+    const { roomId, onlineUsers, joined, syncPresence, startCall, endCall, acceptCall, callStatus, localStream, remoteStream, incomingCallMetadata } = useCall();
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
-    const [recipientId, setRecipientId] = useState(() => localStorage.getItem('chatRecipientId') || '');
-    const [sender, setSender] = useState(() => localStorage.getItem('chatUsername') || '');
+    const [sender, setSender] = useState(() => getPersistentItem('chatUsername') || '');
     const [isOpen, setIsOpen] = useState(false);
-    const [isSettingName, setIsSettingName] = useState(!localStorage.getItem('chatUsername'));
+    const [isSettingName, setIsSettingName] = useState(!getPersistentItem('chatUsername'));
 
     const handleSenderChange = (val: string) => {
         setSender(val);
-        localStorage.setItem('chatUsername', val);
+        setPersistentItem('chatUsername', val);
     };
 
-    const handleRecipientIdChange = (val: string) => {
-        setRecipientId(val);
-        localStorage.setItem('chatRecipientId', val);
-    };
     const [isSelecting, setIsSelecting] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(() => new Set(JSON.parse(localStorage.getItem('hiddenMessages') || '[]')));
+    const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(() => new Set(JSON.parse(getPersistentItem('hiddenMessages') || '[]')));
+    const [error, setError] = useState('');
 
     const handleSetName = (e: React.FormEvent) => {
         e.preventDefault();
         if (!sender.trim()) return;
-        localStorage.setItem('chatUsername', sender);
+        const isDuplicate = onlineUsers.some(u => u.username === sender && u.id !== getPersistentItem('chatUserId'));
+        if (isDuplicate) {
+            setError(t('user_exists'));
+            return;
+        }
+        setError('');
+        setPersistentItem('chatUsername', sender);
         setIsSettingName(false);
+        syncPresence();
     };
 
     useEffect(() => {
@@ -58,14 +63,18 @@ export const Chat = () => {
         await addDoc(collection(db, 'chatMessages'), {
             text: newMessage,
             sender,
-            recipient: recipientId || undefined,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            room: roomId || ''
         });
         setNewMessage('');
     };
 
-    const shareId = () => {
-        setNewMessage(`My ID is: ${roomId}. Let's chat!`);
+    const handleSelectAll = () => {
+        if (selectedIds.size === visibleMessages.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(visibleMessages.map(m => m.id)));
+        }
     };
 
     const toggleSelect = (id: string) => {
@@ -79,7 +88,7 @@ export const Chat = () => {
         const newHidden = new Set(hiddenMessageIds);
         selectedIds.forEach(id => newHidden.add(id));
         setHiddenMessageIds(newHidden);
-        localStorage.setItem('hiddenMessages', JSON.stringify(Array.from(newHidden)));
+        setPersistentItem('hiddenMessages', safeStringify(Array.from(newHidden)));
         setSelectedIds(new Set());
         setIsSelecting(false);
     };
@@ -89,7 +98,10 @@ export const Chat = () => {
     if (!isOpen) {
         return (
             <button 
-                onClick={() => setIsOpen(true)}
+                onClick={() => {
+                    setIsOpen(true);
+                    setIsSettingName(true);
+                }}
                 className="fixed bottom-4 right-4 bg-cyan-600 text-slate-950 p-3 rounded-full shadow-[0_0_10px_rgba(6,182,212,0.5)] z-50 transition-transform hover:scale-105"
             >
                 Chat
@@ -98,33 +110,63 @@ export const Chat = () => {
     }
 
     if (isSettingName) {
+        const hasExistingName = !!getPersistentItem('chatUsername');
         return (
             <div className="fixed bottom-4 right-4 w-80 bg-slate-900 border border-cyan-500 rounded-xl shadow-[0_0_15px_rgba(6,182,212,0.3)] z-50 p-4 font-mono">
                 <h3 className="font-bold mb-2 text-cyan-300">{t('set_name')}</h3>
-                <form onSubmit={handleSetName} className="flex gap-2">
+                <form onSubmit={handleSetName} className="flex flex-col gap-2">
                     <input
                         value={sender}
-                        onChange={(e) => handleSenderChange(e.target.value)}
-                        className="flex-1 bg-slate-950 border border-cyan-700 rounded p-1 text-sm outline-none text-cyan-100"
+                        onChange={(e) => {
+                            handleSenderChange(e.target.value);
+                            setError('');
+                        }}
+                        className="w-full bg-slate-950 border border-cyan-700 rounded p-2 text-sm outline-none text-cyan-100"
                         placeholder={t('enter_name')}
                     />
-                    <button type="submit" className="bg-cyan-600 text-slate-950 font-bold px-3 py-1 rounded text-sm hover:bg-cyan-500">{t('save')}</button>
+                    {error && <p className="text-red-500 text-xs">{error}</p>}
+                    <div className="flex gap-2 justify-end">
+                        {hasExistingName && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSender(getPersistentItem('chatUsername'));
+                                    setIsSettingName(false);
+                                }}
+                                className="bg-slate-700 text-slate-200 px-3 py-1 rounded text-sm hover:bg-slate-600 transition-colors"
+                            >
+                                {t('cancel')}
+                            </button>
+                        )}
+                        <button type="submit" className="bg-cyan-600 text-slate-950 font-bold px-3 py-1 rounded text-sm hover:bg-cyan-500 transition-colors">{t('save')}</button>
+                    </div>
                 </form>
             </div>
         );
     }
 
     return (
-        <div className="fixed bottom-4 right-4 w-80 bg-slate-900 border border-cyan-500 rounded-xl shadow-[0_0_15px_rgba(6,182,212,0.3)] z-50 flex flex-col h-96 overflow-hidden font-mono">
+        <div className="fixed bottom-4 right-4 w-80 bg-slate-900 border border-cyan-500 rounded-xl shadow-[0_0_15px_rgba(6,182,212,0.3)] z-50 flex flex-col h-[400px] overflow-hidden font-mono">
             <div className="p-3 border-b border-cyan-500 flex justify-between items-center bg-slate-800 rounded-t-xl">
                 <h3 className="font-bold text-cyan-300 flex items-center gap-2">
                     <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        {joined ? (
+                            <>
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                            </>
+                        ) : (
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                        )}
                     </span>
-                    {t('chat')} ({sender})
+                    {t('chat')}
                 </h3>
                 <div className="flex gap-2">
+                  {isSelecting && (
+                    <button onClick={handleSelectAll} className="text-cyan-500 hover:text-cyan-300 text-xs">
+                      {selectedIds.size === visibleMessages.length ? 'Unselect All' : 'Select All'}
+                    </button>
+                  )}
                   <button 
                     onClick={() => isSelecting ? deleteSelected() : setIsSelecting(true)} 
                     className={`${isSelecting ? 'bg-red-900 text-red-100 px-2 py-1' : 'text-cyan-500'} hover:text-cyan-300 text-xs rounded`}
@@ -135,52 +177,81 @@ export const Chat = () => {
                   <button onClick={() => setIsOpen(false)} className="text-cyan-500 hover:text-cyan-300">{t('close')}</button>
                 </div>
             </div>
+            <div className="px-3 py-1.5 bg-slate-850 border-b border-cyan-800 text-xs text-cyan-300 flex justify-between items-center gap-2">
+                <span className="truncate">Nome: <strong className="text-cyan-100">{sender}</strong></span>
+                <button 
+                    onClick={() => setIsSettingName(true)} 
+                    className="text-[10px] bg-cyan-950 border border-cyan-700 text-cyan-300 px-1.5 py-0.5 rounded hover:bg-cyan-900 transition-colors"
+                >
+                    {t('change_name')}
+                </button>
+            </div>
+            <div className="px-3 py-1 bg-slate-800 border-b border-cyan-700 text-[10px] text-cyan-300 flex flex-wrap gap-2">
+                <span>Usuários:</span>
+                {onlineUsers.map((user, index) => {
+                    const hasRoom = user.room && user.room.trim() !== '';
+                    return (
+                        <span key={`${user.id}-${index}`} className="flex items-center gap-1 mr-1">
+                            {hasRoom ? (
+                                <>
+                                    <span className="text-green-500">🟢</span>
+                                    <span>{user.username}</span>
+                                    <div className="flex items-center gap-1 ml-1">
+                                        <button
+                                            onClick={() => startCall(user.peerId)}
+                                            className="text-[10px] bg-emerald-900 text-emerald-100 px-1 py-0.5 rounded hover:bg-emerald-800"
+                                        >
+                                            Ligar
+                                        </button>
+                                        <span className="text-[9px] text-cyan-600 font-mono">ID: {user.room}</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="text-red-500">🔴</span>
+                                    <span>{user.username}</span>
+                                </>
+                            )}
+                        </span>
+                    );
+                })}
+            </div>
             <div className="flex-1 overflow-y-auto p-3 bg-slate-950 scrollbar-thin scrollbar-thumb-cyan-700 scrollbar-track-slate-900">
-                {visibleMessages.map(msg => (
-                    <div key={msg.id} className="mb-2 text-sm flex items-start gap-2">
-                        {isSelecting && (
-                            <input 
-                                type="checkbox" 
-                                checked={selectedIds.has(msg.id)}
-                                onChange={() => toggleSelect(msg.id)}
-                                className="mt-1"
-                            />
-                        )}
-                        <div>
-                            <span className="font-semibold text-cyan-400">{msg.sender}</span>
-                            {msg.recipient && <span className="text-cyan-600 text-xs mx-1">to {msg.recipient}</span>}
-                            <span className="font-semibold text-cyan-100">: </span>
-                            <span className="text-cyan-50">{msg.text}</span>
+                {visibleMessages.map((msg, index) => {
+                    const senderUser = onlineUsers.find(u => u.username === msg.sender);
+                    const isOnline = senderUser && senderUser.room && senderUser.room.trim() !== '';
+                    return (
+                        <div key={`${msg.id}-${index}`} className="mb-2 text-sm flex items-start gap-2">
+                            {isSelecting && (
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedIds.has(msg.id)}
+                                    onChange={() => toggleSelect(msg.id)}
+                                    className="mt-1"
+                                />
+                            )}
+                            <div>
+                                <span className="font-semibold text-cyan-400">
+                                    <span className={`text-[10px] mr-1 ${isOnline ? 'text-green-500' : 'text-red-500'} font-bold`}>
+                                        ● {isOnline ? 'ONLINE' : 'OFFLINE'}
+                                    </span>
+                                    {msg.sender}
+                                </span>
+                                <span className="font-semibold text-cyan-100">: </span>
+                                <span className="text-cyan-50">{msg.text}</span>
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
             <form onSubmit={sendMessage} className="p-3 border-t border-cyan-500 flex flex-col gap-2 bg-slate-800">
-                <div className="flex gap-2">
-                    <input
-                        value={sender}
-                        onChange={(e) => handleSenderChange(e.target.value)}
-                        className="w-1/3 bg-slate-950 border border-cyan-700 rounded p-1 text-xs outline-none text-cyan-300 placeholder:text-cyan-900"
-                        placeholder={t('name')}
-                    />
-                    <input
-                        type="number"
-                        value={recipientId}
-                        onChange={(e) => handleRecipientIdChange(e.target.value)}
-                        className="w-1/3 bg-slate-950 border border-cyan-700 rounded p-1 text-xs outline-none text-cyan-300 placeholder:text-cyan-900"
-                        placeholder={t('id')}
-                    />
-                    <button type="button" onClick={shareId} className="w-1/3 bg-slate-700 text-cyan-100 px-2 py-1 rounded text-xs hover:bg-slate-600">{t('share_id')}</button>
-                </div>
-                <div className="flex gap-2">
-                    <input
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        className="flex-1 bg-slate-950 border border-cyan-700 rounded p-1 text-sm outline-none text-cyan-100 placeholder:text-cyan-900"
-                        placeholder={t('type_message')}
-                    />
-                    <button type="submit" className="bg-cyan-600 text-slate-950 font-bold px-3 py-1 rounded text-sm hover:bg-cyan-500">{t('send')}</button>
-                </div>
+                <input
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-cyan-700 rounded p-1 text-sm outline-none text-cyan-100 placeholder:text-cyan-900"
+                    placeholder={t('type_message')}
+                />
+                <button type="submit" className="bg-cyan-600 text-slate-950 font-bold px-3 py-1 rounded text-sm hover:bg-cyan-500">{t('send')}</button>
             </form>
         </div>
     );

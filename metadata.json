@@ -1,6 +1,6 @@
 {
   "name": "IPPhone",
   "description": "Real-time browser-based voice communication.",
-  "requestFramePermissions": ["microphone"],
+  "requestFramePermissions": ["microphone", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
